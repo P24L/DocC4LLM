@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug docc4llm",
+            "program": "${workspaceFolder:DocC4LLM}/.build/debug/docc4llm",
+            "preLaunchTask": "swift: Build Debug docc4llm",
+            "args": [],
+            "cwd": "${workspaceFolder:DocC4LLM}",
+            "env": {}
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Release docc4llm",
+            "program": "${workspaceFolder:DocC4LLM}/.build/release/docc4llm",
+            "preLaunchTask": "swift: Build Release docc4llm",
+            "args": [],
+            "cwd": "${workspaceFolder:DocC4LLM}",
+            "env": {}
+        }
+    ]
+}

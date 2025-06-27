@@ -65,7 +65,7 @@ extension DocCArchive.DocCSchema_0_1 {
   
   public enum SymbolKind: String, Codable, CustomStringConvertible {
     case `struct`, `module`, method, `init`, property, `enum`, `case`, op
-    case `protocol`, `class`, `typealias`
+    case `protocol`, `class`, `typealias`, `extension`
     
     public var description: String { return rawValue }
   }

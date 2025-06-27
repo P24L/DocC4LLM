@@ -86,6 +86,12 @@ extension DocCArchive.DocCSchema_0_1 {
     case orderedList  ([ Item ])
     case unorderedList([ Item ])
     
+    /// Links section - typically contains related links
+    case links        ([ Content ])
+    
+    /// Thematic break (horizontal rule)
+    case thematicBreak
+    
     /**
      * A table, usually written as Markdown.
      *
@@ -94,7 +100,7 @@ extension DocCArchive.DocCSchema_0_1 {
      *
      * The table is represented by a set of ``TableRow``s,
      * which is just an array of ``TableCell``s,
-     * which are just an array of nested ``Content`` values.
+     * which are just arrays of nested ``Content`` values.
      * 
      * Example:
      * ```
@@ -114,7 +120,7 @@ extension DocCArchive.DocCSchema_0_1 {
         case .heading    (let text, let anchor, let level):
           var ms = "<h\(level)"
           if !anchor.isEmpty { ms += " #\(anchor)" }
-          if !text  .isEmpty { ms += " “\(text)”"  }
+          if !text  .isEmpty { ms += " \"\(text)\""  }
           return ms + ">"
         case .aside      (let style, let content):
           return "<aside[\(style)]: \(content)>"
@@ -123,6 +129,8 @@ extension DocCArchive.DocCSchema_0_1 {
         case .paragraph    (let icontent) : return "<p>\(icontent)</p>"
         case .codeListing  (let code)     : return code.description
         case .step         (let step)     : return step.description
+        case .links        (let content)  : return "<links: \(content)>"
+        case .thematicBreak               : return "<hr>"
         case .table(let header, let rows) :
           return "<table header=\(header)>\(rows)</table>"
       }
@@ -166,6 +174,16 @@ extension DocCArchive.DocCSchema_0_1 {
         case "step":
           let content = try Step(from: decoder)
           self = .step(content)
+        case "links":
+          // Links can have different structures, try to decode content if available
+          if let content = try? container.decode([Content].self, forKey: .content) {
+            self = .links(content)
+          } else {
+            // If content is not available, create empty links
+            self = .links([])
+          }
+        case "thematicBreak":
+          self = .thematicBreak
         case "table":
           let headerKind =
             try container.decode(TableHeaderKind.self, forKey: .header)
@@ -204,6 +222,11 @@ extension DocCArchive.DocCSchema_0_1 {
         case .step(let content):
           try container.encode("step"          , forKey: .type)
           try content.encode(to: encoder)
+        case .links(let content):
+          try container.encode("links"         , forKey: .type)
+          try container.encode(content         , forKey: .content)
+        case .thematicBreak:
+          try container.encode("thematicBreak" , forKey: .type)
         case .table(let headerKind, let rows):
           try container.encode("table"         , forKey: .type)
           try container.encode(headerKind      , forKey: .header)
