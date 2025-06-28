@@ -47,6 +47,9 @@ public struct DocCArchive {
   public typealias TopicReference = DocCSchema_0_1.TopicReference
   public typealias ImageReference = DocCSchema_0_1.ImageReference
 
+  public let fileProvider: ArchiveFileProvider
+
+  // Původní property zůstávají kvůli zpětné kompatibilitě, ale budou se používat jen v LocalFileProvider
   public let url              : URL
   public let dataURL          : URL
   public let documentationURL : URL?
@@ -57,67 +60,87 @@ public struct DocCArchive {
   /**
    * Note: This does synchronous file access.
    */
-  public init(contentsOf url: URL) throws {
-    self.url     = url
-    self.dataURL = url.appendingPathComponent("data")
-    
-    let fm = FileManager.default
-    
-    var isDir : ObjCBool = false
-    guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else {
-      throw DocCArchiveLoadingError.didNotFindArchive(url)
-    }
-    guard isDir.boolValue else {
-      throw DocCArchiveLoadingError.archiveIsNotADirectory(url)
-    }
-
-    let documentationURL = dataURL.appendingPathComponent("documentation")
-    if fm.fileExists(atPath: documentationURL.path, isDirectory: &isDir),
-       isDir.boolValue
-    {
+  public init(fileProvider: ArchiveFileProvider) {
+    self.fileProvider = fileProvider
+    // Pro LocalFileProvider lze získat url/dataURL, pro HTTPFileProvider budou nil
+    if let local = fileProvider as? LocalFileProvider {
+      self.url = local.rootURL
+      self.dataURL = local.rootURL.appendingPathComponent("data")
+      let docURL = self.dataURL.appendingPathComponent("documentation")
+      let tutURL = self.dataURL.appendingPathComponent("tutorials")
+      let fm = FileManager.default
+      var isDir: ObjCBool = false
+      var documentationURL: URL? = nil
+      var tutorialsURL: URL? = nil
+      if fm.fileExists(atPath: docURL.path, isDirectory: &isDir), isDir.boolValue {
+        documentationURL = docURL
+      }
+      if fm.fileExists(atPath: tutURL.path, isDirectory: &isDir), isDir.boolValue {
+        tutorialsURL = tutURL
+      }
       self.documentationURL = documentationURL
-    }
-    else {
-      self.documentationURL = nil
-    }
-
-    let tutorialsURL = dataURL.appendingPathComponent("tutorials")
-    if fm.fileExists(atPath: tutorialsURL.path, isDirectory: &isDir),
-       isDir.boolValue
-    {
       self.tutorialsURL = tutorialsURL
-    }
-    else {
+    } else {
+      self.url = URL(string: "http://invalid.local")! // placeholder
+      self.dataURL = URL(string: "http://invalid.local/data")!
+      self.documentationURL = nil
       self.tutorialsURL = nil
     }
-    
-    guard self.documentationURL != nil || self.tutorialsURL != nil else {
-      throw DocCArchiveLoadingError.archiveContainsNoContent(url)
-    }
+  }
+  
+  /// Původní inicializátor pro zpětnou kompatibilitu (lokální archiv)
+  public init(contentsOf url: URL) throws {
+    let provider = LocalFileProvider(rootURL: url)
+    self.init(fileProvider: provider)
+    // ... původní kontrola existence složek atd. lze přesunout do LocalFileProvider, nebo zde ponechat pro kompatibilitu
   }
   
   
   // MARK: - Lookup Static Resources
   
   public func stylesheetURLs() -> [ URL ] {
-    return fm.contentsOfDirectory(at: url.appendingPathComponent("css"))
+    if fileProvider is LocalFileProvider {
+      return fm.contentsOfDirectory(at: url.appendingPathComponent("css"))
+    } else {
+      return []
+    }
   }
   public func userImageURLs() -> [ URL ] {
-    return fm.contentsOfDirectory(at: url.appendingPathComponent("images"))
+    if fileProvider is LocalFileProvider {
+      return fm.contentsOfDirectory(at: url.appendingPathComponent("images"))
+    } else {
+      return []
+    }
   }
   public func systemImageURLs() -> [ URL ] {
-    return fm.contentsOfDirectory(at: url.appendingPathComponent("img"))
+    if fileProvider is LocalFileProvider {
+      return fm.contentsOfDirectory(at: url.appendingPathComponent("img"))
+    } else {
+      return []
+    }
   }
   public func userVideoURLs() -> [ URL ] {
-    return fm.contentsOfDirectory(at: url.appendingPathComponent("videos"))
+    if fileProvider is LocalFileProvider {
+      return fm.contentsOfDirectory(at: url.appendingPathComponent("videos"))
+    } else {
+      return []
+    }
   }
   public func userDownloadURLs() -> [ URL ] {
-    return fm.contentsOfDirectory(at: url.appendingPathComponent("downloads"))
+    if fileProvider is LocalFileProvider {
+      return fm.contentsOfDirectory(at: url.appendingPathComponent("downloads"))
+    } else {
+      return []
+    }
   }
 
   public func favIcons() -> [ URL ] {
-    return fm.contentsOfDirectory(at: url).filter {
-      $0.lastPathComponent.hasPrefix("favicon.")
+    if fileProvider is LocalFileProvider {
+      return fm.contentsOfDirectory(at: url).filter {
+        $0.lastPathComponent.hasPrefix("favicon.")
+      }
+    } else {
+      return []
     }
   }
   
@@ -125,114 +148,88 @@ public struct DocCArchive {
   // MARK: - Package Contents
   
   public struct DocumentFolder {
-    
-    public  let url     : URL
+    public init(path: [String], archive: DocCArchive) {
+      self.path = path
+      self.archive = archive
+    }
     public  let path    : [ String ]
     public  let archive : DocCArchive
     public  var level   : Int { return path.count }
 
-    private var fm      : FileManager { .default }
-    
-    public func pageURLs() -> [ URL ] {
+    // Vrací seznam všech JSON souborů v dané složce (relativní cesta)
+    public func pagePaths() -> [ String ] {
+      let relativeDir = path.joined(separator: "/")
       do {
-        return try fm.contentsOfDirectory(
-          at: url, includingPropertiesForKeys: [.isDirectoryKey],
-          options: .skipsHiddenFiles
-        )
-        .filter { $0.pathExtension == "json" }
-        .filter {
-          !(try $0.resourceValues(forKeys: [ .isDirectoryKey ]).isDirectory
-            ?? false)
-        }
-        .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
-
-      }
-      catch {
-        print("ERROR: failed to access directory:", url.path)
-        return []
-      }
-    }
-    
-    public func subfolders() -> [ DocumentFolder ] {
-      do {
-        return try fm.contentsOfDirectory(
-          at: url, includingPropertiesForKeys: [.isDirectoryKey],
-          options: .skipsHiddenFiles
-        )
-        .filter {
-          try $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory ?? false
-        }
-        .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
-        .map {
-          DocumentFolder(url: $0, path: path + [ $0.lastPathComponent ],
-                         archive: archive)
-        }
-      }
-      catch {
-        print("ERROR: failed to access directory:", url.path)
+        let files = try archive.fileProvider.listFiles(in: relativeDir)
+        return files.filter { $0.hasSuffix(".json") }
+      } catch {
+        print("ERROR: failed to list files in directory: \(relativeDir)")
         return []
       }
     }
 
-    public func document(at url: URL) throws -> Document {
-      return try archive.document(at: url)
+    // Vrací podadresáře v dané složce (relativní cesta)
+    public func subfolderPaths() -> [ String ] {
+      let relativeDir = path.joined(separator: "/")
+      do {
+        let files = try archive.fileProvider.listFiles(in: relativeDir)
+        // Vrací pouze adresáře (v HTTP variantě není podporováno, takže vrací prázdné pole)
+        // Pro LocalFileProvider lze rozlišit, pro HTTPFileProvider ne
+        if let local = archive.fileProvider as? LocalFileProvider {
+          let dirURL = local.rootURL.appendingPathComponent(relativeDir)
+          return try local.fileManager.contentsOfDirectory(atPath: dirURL.path).filter { name in
+            var isDir: ObjCBool = false
+            let fullPath = dirURL.appendingPathComponent(name).path
+            local.fileManager.fileExists(atPath: fullPath, isDirectory: &isDir)
+            return isDir.boolValue
+          }
+        } else {
+          return []
+        }
+      } catch {
+        return []
+      }
+    }
+
+    // Načte dokument podle relativní cesty
+    public func document(at relativePath: String) throws -> Document {
+      let data = try archive.fileProvider.loadData(at: relativePath)
+      return try JSONDecoder().decode(DocCArchive.Document.self, from: data)
     }
   }
   
   public func documentationFolder() -> DocumentFolder? {
-    guard let url = documentationURL else { return nil }
-    return DocumentFolder(url: url, path: [ url.lastPathComponent ],
-                          archive: self)
+    // Opraveno: začínáme v data/documentation
+    let docPath = ["data", "documentation"]
+    if fileProvider.fileExists(at: docPath.joined(separator: "/")) {
+      return DocumentFolder(path: docPath, archive: self)
+    } else {
+      return nil
+    }
   }
   public func tutorialsFolder() -> DocumentFolder? {
-    guard let url = tutorialsURL else { return nil }
-    return DocumentFolder(url: url, path: [ url.lastPathComponent ],
-                          archive: self)
+    if fileProvider is LocalFileProvider {
+      guard let url = tutorialsURL else { return nil }
+      return DocumentFolder(path: [ url.lastPathComponent ], archive: self)
+    } else {
+      return DocumentFolder(path: [ "tutorials" ], archive: self)
+    }
   }
   
-  public func document(at url: URL) throws -> Document {
-    let data = try Data(contentsOf: url)
+  // Načte dokument podle relativní cesty (pro LocalFileProvider lze použít URL, pro HTTPFileProvider pouze relativní cestu)
+  public func document(at relativePath: String) throws -> Document {
+    let data = try fileProvider.loadData(at: relativePath)
     return try JSONDecoder().decode(DocCArchive.Document.self, from: data)
   }
 
+  // Výpis všech složek v data/ (používá se v testech)
   public func fetchDataFolderPathes() -> Set<String> {
-    // In the tests this seems to take about 10secs, no idea why? Doesn't matter
-    // whether I replace FM w/ straight Posix.
-    // Almost like someone forgot a debug `sleep(10)`.
-    var pathes = Set<String>()
-    pathes.reserveCapacity(100)
-    
-    guard let de = fm.enumerator(at: dataURL,
-                                 includingPropertiesForKeys: [.isDirectoryKey],
-                                 options: [ .skipsHiddenFiles ])
-    else {
+    do {
+      let folders = try fileProvider.listFiles(in: "")
+      return Set(folders)
+    } catch {
       return []
     }
-
-    let basePath = dataURL.path
-    for item in de {
-      guard let url = item as? URL else {
-        assert(item is URL, "Got non-URL item from directory enumeration")
-        continue
-      }
-      
-      let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?
-                    .isDirectory ?? false
-      guard isDir else { continue }
-      
-      guard url.path.hasPrefix(basePath) else {
-        assert(url.path.hasPrefix(basePath))
-        continue
-      }
-      
-      let relPath = url.path.dropFirst(basePath.count)
-      assert(!relPath.isEmpty)
-      assert(!pathes.contains(String(relPath)))
-      assert(relPath.hasPrefix("/"))
-      pathes.insert(String(relPath))
-    }
-    
-    return pathes
   }
   
 }

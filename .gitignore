@@ -95,3 +95,5 @@ xcuserdata
 .docker.build
 .swiftpm
 
+#DoCC exmaple
+ATProtoKit.doccarchive

@@ -341,4 +341,136 @@ public extension DocCArchive.DocCSchema_0_1.Document {
             return ""
         }
     }
+}
+
+// MARK: - Online Recursive Export (moved from main.swift)
+
+/// Najde všechny online JSON soubory rekurzivně, pouze s daným prefixem a pouze podle hlavního indexu (references).
+public func collectOnlineJSONsRecursively(
+    archive: DocCArchive,
+    entryPath: String,
+    visited: inout Set<String>,
+    maxDepth: Int = 2,
+    currentDepth: Int = 0,
+    prefix: String = "data/documentation/"
+) -> [String] {
+    var result: [String] = []
+    var queue: [(String, Int, [String: Any]?)] = [(entryPath, currentDepth, nil)]
+    var mainReferences: [String: Any]? = nil
+    // Načti hlavní index (entry JSON) a získej jeho references
+    do {
+        let data = try archive.fileProvider.loadData(at: entryPath)
+        let json = try JSONSerialization.jsonObject(with: data, options: [])
+        if let dict = json as? [String: Any], let refs = dict["references"] as? [String: Any] {
+            mainReferences = refs
+        }
+    } catch {
+        // Pokud selže, pokračuj bez validace (fallback na původní chování)
+    }
+    while !queue.isEmpty {
+        let (current, depth, parentDict) = queue.removeFirst()
+        if visited.contains(current) { continue }
+        visited.insert(current)
+        // Filtrace podle prefixu
+        guard current.hasPrefix(prefix) else { continue }
+        result.append(current)
+        if depth >= maxDepth { continue }
+        do {
+            let data = try archive.fileProvider.loadData(at: current)
+            if let str = String(data: data, encoding: .utf8), str.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<") {
+                continue
+            }
+            let json = try JSONSerialization.jsonObject(with: data, options: [])
+            guard let dict = json as? [String: Any] else { continue }
+            // topicSections
+            if let topicSections = dict["topicSections"] as? [[String: Any]] {
+                for section in topicSections {
+                    if let identifiers = section["identifiers"] as? [String] {
+                        for id in identifiers {
+                            // Ověř, že ID je v hlavním references
+                            if let mainRefs = mainReferences, mainRefs[id] != nil, let relPath = pathForIdentifier(id, in: dict) {
+                                queue.append((relPath, depth + 1, dict))
+                            }
+                        }
+                    }
+                }
+            }
+            // items (např. v "links" nebo "items" v contentu)
+            if let items = dict["items"] as? [String] {
+                for id in items {
+                    if let mainRefs = mainReferences, mainRefs[id] != nil, let relPath = pathForIdentifier(id, in: dict) {
+                        queue.append((relPath, depth + 1, dict))
+                    }
+                }
+            }
+            // references (pole nebo slovník)
+            if let references = dict["references"] as? [String: Any] {
+                for (id, _) in references {
+                    if let mainRefs = mainReferences, mainRefs[id] != nil, let relPath = pathForIdentifier(id, in: dict) {
+                        queue.append((relPath, depth + 1, dict))
+                    }
+                }
+            } else if let referencesArr = dict["references"] as? [[String: Any]] {
+                for ref in referencesArr {
+                    if let id = ref["identifier"] as? String, let mainRefs = mainReferences, mainRefs[id] != nil, let relPath = pathForIdentifier(id, in: dict) {
+                        queue.append((relPath, depth + 1, dict))
+                    }
+                }
+            }
+        } catch {
+            // Chyby řešíme až při dekódování dokumentu
+        }
+    }
+    return result
+}
+
+/// Najde relativní cestu k identifikátoru v JSON dictu.
+public func pathForIdentifier(_ identifier: String, in dict: [String: Any]?) -> String? {
+    if let dict = dict {
+        if let references = dict["references"] as? [String: Any], let ref = references[identifier] as? [String: Any] {
+            if let variants = ref["variants"] as? [[String: Any]] {
+                for variant in variants {
+                    if let paths = variant["paths"] as? [String], let first = paths.first {
+                        return "data" + first + ".json"
+                    }
+                }
+            }
+            if let url = ref["url"] as? String {
+                return "data" + url + ".json"
+            }
+        }
+        if let referencesArr = dict["references"] as? [[String: Any]] {
+            for ref in referencesArr {
+                if let id = ref["identifier"] as? String, id == identifier {
+                    if let variants = ref["variants"] as? [[String: Any]] {
+                        for variant in variants {
+                            if let paths = variant["paths"] as? [String], let first = paths.first {
+                                return "data" + first + ".json"
+                            }
+                        }
+                    }
+                    if let url = ref["url"] as? String {
+                        return "data" + url + ".json"
+                    }
+                }
+            }
+        }
+        if let variants = dict["variants"] as? [[String: Any]] {
+            for variant in variants {
+                if let paths = variant["paths"] as? [String] {
+                    for path in paths {
+                        if let lastComponent = identifier.split(separator: "/").last, path.lowercased().contains(lastComponent.lowercased()) {
+                            return "data" + path + ".json"
+                        }
+                    }
+                }
+            }
+        }
+    }
+    guard identifier.hasPrefix("doc://") else { return nil }
+    let path = identifier.replacingOccurrences(of: "doc://ATProtoKit/", with: "data/")
+        .replacingOccurrences(of: "/", with: "/")
+        .appending(".json")
+        .lowercased()
+    return path
 } 
