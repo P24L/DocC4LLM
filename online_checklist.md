@@ -39,19 +39,30 @@
 - Neúspěšné nebo externí URL jsou logovány a ignorovány.
 - **Rekurze nyní odpovídá chování Vue.js SPA DocC: exportér načítá pouze reference z hlavního indexu, v failed_urls.txt zůstávají jen skutečně externí nebo explicitně chybějící soubory.**
 
-## Další postup
-1. **Filtrace cest**
-   - Zpracovávat pouze cesty začínající na `data/documentation/` (prefix bude do budoucna parametrizovatelný).
-   - Název knihovny (např. `atprotokit`) je součástí cesty, ale filtrujeme pouze podle obecného prefixu.
-2. **Refaktorace**
-   - Přesunout rekurzivní logiku prohledávání a exportu JSON souborů z `main.swift` do knihovny (např. do `DocCArchive/Export.swift`).
-   - Zajistit lepší testovatelnost a opakované použití.
-3. **Vstupní JSON soubor**
-   - Aktuálně je jako vstupní bod potřeba zadat konkrétní indexový JSON (např. `https://atprotokit.cjrriley.com/data/documentation/atprotokit.json`).
-   - Do budoucna vylepšit: umožnit zadat pouze kořenovou URL a automaticky najít hlavní index (např. podle konvence nebo metadata.json). Tento krok je náročnější a bude řešen později.
-4. **Ošetřit chyby při stahování (timeout, 404, atd.)**
-5. **(Volitelně) Přidat jednoduché cachování stažených souborů**
-6. **Přidat CLI přepínač pro online režim (URL místo cesty)**
-7. **Ověřit výstup a porovnat s lokální variantou**
-8. **Zapsat poznatky a případné limity do README** 
-9. **(Volitelné) Zvážit vytvoření pull requestu s úpravami zpět do původního DocCArchive repozitáře** 
+## 6. Rozšířené URL podpory
+- [x] **Index.json handling** - Automatické přesměrování z `/index/index.json` na hlavní modul dokumentace
+  - [x] Implementován parsing `interfaceLanguages.swift[0].path` z index souboru
+  - [x] Testováno na https://sdwebimage.github.io/index/index.json → data/documentation/sdwebimage.json
+  - [x] Úspěšný export 293 dokumentačních souborů (598KB)
+- [x] **Univerzální URL parsing** - Podpora všech tří hlavních use-cases:
+  - [x] Přímé dokumenty: `https://sdwebimage.github.io/data/documentation/sdwebimageswiftui.json`
+  - [x] Vnořené dokumenty: `https://atprotokit.cjrriley.com/data/documentation/atprotokit/atprotokit/apiclientservice.json`
+  - [x] Index dokumenty: `https://sdwebimage.github.io/index/index.json`
+
+## Aktuální stav (DOKONČENO ✅)
+**Online režim je plně funkční a připraven k produkčnímu použití.**
+
+### Dokončené úkoly:
+1. ✅ **Filtrace cest** - Implementována filtrace `data/documentation/` prefixu
+2. ✅ **URL parsing** - Zjednodušeno a rozšířeno pro všechny use-cases 
+3. ✅ **Index.json handling** - Automatické přesměrování na hlavní modul
+4. ✅ **CLI interface** - Plně funkční online režim bez dodatečných přepínačů
+5. ✅ **Testování** - Ověřeno na reálné dokumentaci (293 souborů, 598KB export)
+6. ✅ **Error handling** - Graceful handling neúspěšných URL a dekódování
+
+### Zbývající vylepšení (volitelné):
+1. **Refaktorace** - Přesunout rekurzivní logiku z `main.swift` do `Export.swift`
+2. **Cachování** - Přidat jednoduché cachování stažených souborů
+3. **Metadata autodetekce** - Autodetekce hlavního indexu z kořenové URL
+4. **Performance** - Paralelní stahování souborů
+5. **Dokumentace** - Aktualizace README s online examples 

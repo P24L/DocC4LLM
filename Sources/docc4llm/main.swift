@@ -28,7 +28,7 @@ func collectOnlineJSONsRecursively(archive: DocCArchive, entryPath: String, visi
     var result: [String] = []
     var queue: [(String, Int, [String: Any]?)] = [(entryPath, 0, nil)]
     while !queue.isEmpty {
-        let (current, depth, parentDict) = queue.removeFirst()
+        let (current, depth, _) = queue.removeFirst()
         if visited.contains(current) { continue }
         visited.insert(current)
         result.append(current)
@@ -212,21 +212,60 @@ case "export":
     
     if archivePath.hasPrefix("http://") || archivePath.hasPrefix("https://") {
         // ONLINE VARIANTA
-        guard let url = URL(string: archivePath) else {
+        guard let fullURL = URL(string: archivePath) else {
             print("Error: Invalid URL: \(archivePath)")
             exit(1)
         }
-        // baseURL = vše před "/data/documentation/"
-        let marker = "/data/documentation/"
-        guard let range = archivePath.range(of: marker) else {
-            print("Error: URL must contain /data/documentation/ segment")
-            exit(1)
-        }
-        let baseURLString = String(archivePath[..<range.lowerBound])
-        let entryPath = String(archivePath[range.lowerBound...].dropFirst(1)) // bez počátečního lomítka
-        let prefix = "data/documentation/"
-        guard let baseURL = URL(string: baseURLString) else {
-            print("Error: Invalid base URL: \(baseURLString)")
+        
+        let baseURL: URL
+        let entryPath: String
+        let prefix: String
+        
+        if archivePath.contains("/index/index.json") {
+            // Use-case 3: https://sdwebimage.github.io/index/index.json
+            // Potřebujeme najít hlavní modul a přesměrovat na dokumentaci
+            baseURL = fullURL.deletingLastPathComponent().deletingLastPathComponent()
+            
+            // Načti index soubor a najdi hlavní modul
+            let indexProvider = HTTPFileProvider(baseURL: baseURL)
+            do {
+                let indexData = try indexProvider.loadData(at: "index/index.json")
+                let json = try JSONSerialization.jsonObject(with: indexData, options: [])
+                
+                if let dict = json as? [String: Any],
+                   let interfaceLanguages = dict["interfaceLanguages"] as? [String: Any],
+                   let swift = interfaceLanguages["swift"] as? [[String: Any]],
+                   let firstModule = swift.first,
+                   let modulePath = firstModule["path"] as? String {
+                    
+                    // Přesměruj na hlavní modul dokumentaci
+                    entryPath = "data\(modulePath).json"
+                    prefix = "data/documentation/"
+                    print("[INFO] Index redirect: \(archivePath) -> \(entryPath)")
+                } else {
+                    print("Error: Cannot find main module in index.json")
+                    exit(1)
+                }
+            } catch {
+                print("Error: Cannot load or parse index.json: \(error)")
+                exit(1)
+            }
+        } else if archivePath.contains("/data/documentation/") {
+            // Use-case 1 & 2: data/documentation/ paths
+            guard let range = archivePath.range(of: "/data/documentation/") else {
+                print("Error: Invalid documentation URL")
+                exit(1)
+            }
+            let baseURLString = String(archivePath[..<range.lowerBound])
+            guard let base = URL(string: baseURLString) else {
+                print("Error: Invalid base URL: \(baseURLString)")
+                exit(1)
+            }
+            baseURL = base
+            entryPath = String(archivePath[range.lowerBound...].dropFirst(1)) // bez počátečního lomítka
+            prefix = "data/documentation/"
+        } else {
+            print("Error: Unsupported URL format. Use /data/documentation/ or /index/index.json")
             exit(1)
         }
         let provider = HTTPFileProvider(baseURL: baseURL)

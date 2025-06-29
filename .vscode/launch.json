@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "lldb",
+            "type": "swift",
             "request": "launch",
             "name": "Debug docc4llm",
             "program": "${workspaceFolder:DocC4LLM}/.build/debug/docc4llm",
@@ -12,7 +12,7 @@
             "env": {}
         },
         {
-            "type": "lldb",
+            "type": "swift",
             "request": "launch",
             "name": "Release docc4llm",
             "program": "${workspaceFolder:DocC4LLM}/.build/release/docc4llm",
