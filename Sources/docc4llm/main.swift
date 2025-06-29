@@ -216,23 +216,23 @@ case "export":
             print("Error: Invalid URL: \(archivePath)")
             exit(1)
         }
-        // baseURL = vše před "/data/documentation/atprotokit.json"
-        let baseURLString: String
-        if let range = archivePath.range(of: "/data/documentation/atprotokit.json") {
-            baseURLString = String(archivePath[..<range.lowerBound])
-        } else {
-            print("Error: For PoC, URL must end with /data/documentation/atprotokit.json")
+        // baseURL = vše před "/data/documentation/"
+        let marker = "/data/documentation/"
+        guard let range = archivePath.range(of: marker) else {
+            print("Error: URL must contain /data/documentation/ segment")
             exit(1)
         }
+        let baseURLString = String(archivePath[..<range.lowerBound])
+        let entryPath = String(archivePath[range.lowerBound...].dropFirst(1)) // bez počátečního lomítka
+        let prefix = "data/documentation/"
         guard let baseURL = URL(string: baseURLString) else {
             print("Error: Invalid base URL: \(baseURLString)")
             exit(1)
         }
         let provider = HTTPFileProvider(baseURL: baseURL)
         let archive = DocCArchive(fileProvider: provider)
-        let entryPath = "data/documentation/atprotokit.json"
         var visited = Set<String>()
-        let allPaths = collectOnlineJSONsRecursively(archive: archive, entryPath: entryPath, visited: &visited, maxDepth: 2, prefix: "data/documentation/")
+        let allPaths = collectOnlineJSONsRecursively(archive: archive, entryPath: entryPath, visited: &visited, maxDepth: 2, prefix: prefix)
         print("[INFO] Nalezené JSON soubory:")
         for path in allPaths {
             print("  \(path)")

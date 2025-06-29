@@ -376,6 +376,7 @@ public func collectOnlineJSONsRecursively(
         result.append(current)
         if depth >= maxDepth { continue }
         do {
+            print("[DEBUG] Pokus o stažení: \(current)")
             let data = try archive.fileProvider.loadData(at: current)
             if let str = String(data: data, encoding: .utf8), str.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<") {
                 continue
@@ -426,17 +427,26 @@ public func collectOnlineJSONsRecursively(
 
 /// Najde relativní cestu k identifikátoru v JSON dictu.
 public func pathForIdentifier(_ identifier: String, in dict: [String: Any]?) -> String? {
+    func ensureDocumentationPath(_ path: String) -> String {
+        if path.hasPrefix("data/documentation/") {
+            return path
+        } else if path.hasPrefix("data/") {
+            return "data/documentation/" + path.dropFirst("data/".count)
+        } else {
+            return path
+        }
+    }
     if let dict = dict {
         if let references = dict["references"] as? [String: Any], let ref = references[identifier] as? [String: Any] {
             if let variants = ref["variants"] as? [[String: Any]] {
                 for variant in variants {
                     if let paths = variant["paths"] as? [String], let first = paths.first {
-                        return "data" + first + ".json"
+                        return ensureDocumentationPath("data" + first + ".json")
                     }
                 }
             }
             if let url = ref["url"] as? String {
-                return "data" + url + ".json"
+                return ensureDocumentationPath("data" + url + ".json")
             }
         }
         if let referencesArr = dict["references"] as? [[String: Any]] {
@@ -445,12 +455,12 @@ public func pathForIdentifier(_ identifier: String, in dict: [String: Any]?) -> 
                     if let variants = ref["variants"] as? [[String: Any]] {
                         for variant in variants {
                             if let paths = variant["paths"] as? [String], let first = paths.first {
-                                return "data" + first + ".json"
+                                return ensureDocumentationPath("data" + first + ".json")
                             }
                         }
                     }
                     if let url = ref["url"] as? String {
-                        return "data" + url + ".json"
+                        return ensureDocumentationPath("data" + url + ".json")
                     }
                 }
             }
@@ -460,7 +470,7 @@ public func pathForIdentifier(_ identifier: String, in dict: [String: Any]?) -> 
                 if let paths = variant["paths"] as? [String] {
                     for path in paths {
                         if let lastComponent = identifier.split(separator: "/").last, path.lowercased().contains(lastComponent.lowercased()) {
-                            return "data" + path + ".json"
+                            return ensureDocumentationPath("data" + path + ".json")
                         }
                     }
                 }
@@ -472,5 +482,5 @@ public func pathForIdentifier(_ identifier: String, in dict: [String: Any]?) -> 
         .replacingOccurrences(of: "/", with: "/")
         .appending(".json")
         .lowercased()
-    return path
+    return ensureDocumentationPath(path)
 } 
